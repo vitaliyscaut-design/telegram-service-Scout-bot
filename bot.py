@@ -153,7 +153,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if record[key].strip().lower() in ('так', 'так.', 'yes', 'да'):
                     buttons.append([InlineKeyboardButton(label, callback_data=f'route:{key}')])
             if not buttons:
-                lines.append('\nℹ️ Для цього запису маршрут не позначений як доступний у таблиці. Зверніться до сервісу для уточнення.')
+                lines.append('\nℹ️ Для цього запису маршрут не позначений як доступний у таблиці. Зверніться до сервісу для уточнення 0800332034.')
             buttons.append([InlineKeyboardButton('⬅️ До причин', callback_data='back_causes')])
             buttons.append([InlineKeyboardButton('🏠 Головне меню', callback_data='menu')])
             await q.edit_message_text(

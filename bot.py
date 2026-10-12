@@ -153,7 +153,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if record[key].strip().lower() in ('так', 'так.', 'yes', 'да'):
                     buttons.append([InlineKeyboardButton(label, callback_data=f'route:{key}')])
             if not buttons:
-                lines.append('\nℹ️ Для цього запису маршрут не позначений як доступний у таблиці. Зверніться до сервісу для уточнення 0800332034.')
+                lines.append('\nℹ️ Для цього запису маршрут не позначений як доступний у таблиці. Зверніться до сервісу для уточнення.')
             buttons.append([InlineKeyboardButton('⬅️ До причин', callback_data='back_causes')])
             buttons.append([InlineKeyboardButton('🏠 Головне меню', callback_data='menu')])
             await q.edit_message_text(
@@ -209,11 +209,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['awaiting_contact'] = True
 
             await q.edit_message_text(
-                f"✅ Обраний маршрут: <b>{labels[route]}</b>\n"
-                "Якщо вам не вдалось самостійно вирішити проблему, напишіть нам у <b>Viber</b> на номер:\n"
-                "<code>+380689797080</code>\n"
-                "Або наберіть номер Гарячої лінії 0800332034\n\n"
-                "При зверненні вкажіть наступну інформацію:\n"
+                f"✅ Обраний маршрут: <b>{labels[route]}</b>\n\n"
+                "Щоб сформувати заявку, напишіть нам у <b>Viber</b> на номер:\n"
+                "<code>+380689797080</code>\n\n"
+                "Надішліть:\n"
                 "• ваше ім’я;\n"
                 "• номер телефону;\n"
                 "• модель трактора;\n"
@@ -222,7 +221,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Якщо поки не хочете надсилати заявку — натисніть «Головне меню».",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton('🏠 Головне меню', callback_data='menu')]
-                ])
+                ]),
                 parse_mode='HTML'
             )
             return

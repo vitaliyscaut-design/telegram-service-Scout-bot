@@ -222,7 +222,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Якщо поки не хочете надсилати заявку — натисніть «Головне меню».",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton('🏠 Головне меню', callback_data='menu')]
-                ]),([InlineKeyboardButton('⬅️ До причин', callback_data='back_causes')])
+                ]) 
+              reply_markup=InlineKeyboardMarkup([InlineKeyboardButton('⬅️ До причин', callback_data='back_causes')])
                 parse_mode='HTML'
             )
             return

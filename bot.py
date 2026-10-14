@@ -153,7 +153,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if record[key].strip().lower() in ('так', 'так.', 'yes', 'да'):
                     buttons.append([InlineKeyboardButton(label, callback_data=f'route:{key}')])
             if not buttons:
-                lines.append('\nℹ️ Для цього запису маршрут не позначений як доступний у таблиці. Зверніться до сервісу для уточнення.')
+                lines.append('\nℹ️ Для цього запису маршрут не позначений як доступний у таблиці. Зверніться до сервісу для уточнення 0800332034.')
             buttons.append([InlineKeyboardButton('⬅️ До причин', callback_data='back_causes')])
             buttons.append([InlineKeyboardButton('🏠 Головне меню', callback_data='menu')])
             await q.edit_message_text(
@@ -169,6 +169,40 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.edit_message_text(
                 f'⚠️ *{problem}*\n\nОберіть причину / несправність:',
                 reply_markup=page_markup([r['cause'] for r in causes], 'cause', 0),
+                parse_mode='Markdown'
+            )
+            return
+
+        if data == 'back_route':
+            context.user_data['awaiting_contact'] = False
+            record = context.user_data.get('selected_record')
+            if not record:
+                await show_categories(q, edit=True)
+                return
+
+            lines = [f"🔎 *Причина / несправність:*\n{record['cause']}"]
+            if record['detect']:
+                lines.append(f"\n🧪 *Спосіб виявлення:*\n{record['detect']}")
+            if record['fix']:
+                lines.append(f"\n🛠 *Шлях усунення:*\n{record['fix']}")
+
+            buttons = []
+            for key, label in [
+                ('self', '🔧 Самостійний ремонт'),
+                ('master', '👨‍🔧 Виклик майстра'),
+                ('service', '🚜 Забір на сервіс')
+            ]:
+                if record[key].strip().lower() in ('так', 'так.', 'yes', 'да'):
+                    buttons.append([InlineKeyboardButton(label, callback_data=f'route:{key}')])
+
+            if not buttons:
+                lines.append('\nℹ️ Для цього запису маршрут не позначений як доступний у таблиці. Зверніться до сервісу для уточнення 0800332034.')
+
+            buttons.append([InlineKeyboardButton('⬅️ До причин', callback_data='back_causes')])
+            buttons.append([InlineKeyboardButton('🏠 Головне меню', callback_data='menu')])
+            await q.edit_message_text(
+                '\n'.join(lines),
+                reply_markup=InlineKeyboardMarkup(buttons),
                 parse_mode='Markdown'
             )
             return
@@ -200,16 +234,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'service': 'Забір на сервіс'
             }
             record = context.user_data.get('selected_record')
-
             if not record:
                 await show_categories(q, edit=True)
                 return
-
             context.user_data['pending_route'] = labels[route]
             context.user_data['awaiting_contact'] = True
-
             await q.edit_message_text(
-                f"✅ Обраний маршрут: <b>{labels[route]}</b>\n\n"
+                f"✅ Обраний маршрут: <b>{labels[route]}</b>\n"
                 "Якщо вам не вдалось самостійно вирішити проблему, напишіть нам у <b>Viber</b> на номер:\n"
                 "<code>+380689797080</code>\n"
                 "Або наберіть номер Гарячої лінії 0800332034\n\n"
@@ -221,6 +252,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "• населений пункт.\n\n"
                 "Якщо поки не хочете надсилати заявку — натисніть «Головне меню».",
                 reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('⬅️ Назад', callback_data='back_route')],
                     [InlineKeyboardButton('🏠 Головне меню', callback_data='menu')]
                 ]),
                 parse_mode='HTML'
@@ -235,12 +267,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get('awaiting_contact'):
         await update.message.reply_text('Оберіть пункт у меню кнопками нижче або введіть /start.')
         return
-
     record = context.user_data.get('selected_record', {})
     route = context.user_data.get('pending_route', 'Маршрут не вказаний')
     user = update.effective_user
     details = update.message.text.strip()
-
     if ADMIN_CHAT_ID:
         message = (
             '📩 *Нова сервісна заявка*\n'
@@ -271,7 +301,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'Дані збережені в цій розмові, але передача заявки сервісу ще не налаштована. '
             'Адміністратор має додати ADMIN_CHAT_ID у налаштування.'
         )
-
     context.user_data['awaiting_contact'] = False
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

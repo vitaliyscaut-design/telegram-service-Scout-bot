@@ -10,7 +10,7 @@ from telegram.ext import (Application, CommandHandler, CallbackQueryHandler,
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
-DATA_FILE = os.getenv("BOT_DATA_FILE", "Для Бота2-2.xlsx")
+DATA_FILE = os.getenv("BOT_DATA_FILE", "Для Бота2.xlsx")
 PAGE_SIZE = 8
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")

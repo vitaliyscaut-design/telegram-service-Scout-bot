@@ -1,7 +1,6 @@
 import os
 import logging
 from pathlib import Path
-from collections import defaultdict
 from openpyxl import load_workbook
 from dotenv import load_dotenv
 load_dotenv()
@@ -11,14 +10,12 @@ from telegram.ext import (Application, CommandHandler, CallbackQueryHandler,
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
-DATA_FILE = os.getenv("BOT_DATA_FILE", "Для Бота2.xlsx")
+DATA_FILE = os.getenv("BOT_DATA_FILE", "Для Бота2-2.xlsx")
 PAGE_SIZE = 8
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-# Load rows from the Excel workbook. Expected columns:
-# Категорія | Проблема | Причина/Несправність | Спосіб виявлення | Шлях усунення | Самостійно | Інструкція для самостійного ремонту: | Майстер | Сервіс
 def load_database():
     path = Path(DATA_FILE)
     if not path.exists():
@@ -29,6 +26,7 @@ def load_database():
         raise ValueError("Файл бази порожній")
     headers = [str(x or '').strip().lower() for x in all_rows[0]]
     aliases = {
+        'model': ['модель трактора', 'модель'],
         'category': ['категорія', 'категория'],
         'problem': ['проблема'],
         'cause': ['причина/несправність', 'причина / несправність', 'несправність / можлива причина'],
@@ -52,9 +50,9 @@ def load_database():
             if h in options:
                 idx[key] = i
                 break
-        # instruction — необов’язковий стовпець
         if key not in idx and key != 'instruction':
             raise ValueError(f"Не знайдено колонку для поля: {key}. Перевір заголовки таблиці.")
+
     data = []
     for line_no, row in enumerate(all_rows[1:], start=2):
         def val(key):
@@ -62,11 +60,15 @@ def load_database():
                 return ''
             i = idx[key]
             return str(row[i]).strip() if i < len(row) and row[i] is not None else ''
-        category, problem, cause = val('category'), val('problem'), val('cause')
-        if not (category and problem and cause):
+        model = val('model')
+        category = val('category')
+        problem = val('problem')
+        cause = val('cause')
+        if not (model and category and problem and cause):
             continue
         data.append({
             'id': len(data),
+            'model': model,
             'category': category,
             'problem': problem,
             'cause': cause,
@@ -79,7 +81,7 @@ def load_database():
             'source_row': line_no,
         })
     if not data:
-        raise ValueError("Не знайшов жодного повного рядка. Перевір перші три колонки.")
+        raise ValueError("Не знайшов жодного повного рядка.")
     return data
 
 DB = load_database()
@@ -87,25 +89,25 @@ DB = load_database()
 def unique(values):
     return list(dict.fromkeys(values))
 
-def page_markup(items, prefix, page=0, back_data='menu'):
+def page_markup(items, prefix, page=0):
     start = page * PAGE_SIZE
     subset = items[start:start + PAGE_SIZE]
-    buttons = [[InlineKeyboardButton(label[:60], callback_data=f'{prefix}:{start+i}')]
+    buttons = [[InlineKeyboardButton(label[:60], callback_data=f'{prefix}:{start + i}')]
                for i, label in enumerate(subset)]
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton('⬅️ Попередні', callback_data=f'page:{prefix}:{page-1}'))
+        nav.append(InlineKeyboardButton('⬅️ Попередні', callback_data=f'page:{prefix}:{page - 1}'))
     if start + PAGE_SIZE < len(items):
-        nav.append(InlineKeyboardButton('Наступні ➡️', callback_data=f'page:{prefix}:{page+1}'))
+        nav.append(InlineKeyboardButton('Наступні ➡️', callback_data=f'page:{prefix}:{page + 1}'))
     if nav:
         buttons.append(nav)
     buttons.append([InlineKeyboardButton('🏠 Головне меню', callback_data='menu')])
     return InlineKeyboardMarkup(buttons)
 
-async def show_categories(target, edit=False):
-    categories = unique(r['category'] for r in DB)
-    markup = page_markup(categories, 'cat', 0)
-    text = '🔧 *Діагностика трактора*\n\nОберіть категорію:'
+async def show_models(target, edit=False):
+    models = unique(r['model'] for r in DB)
+    markup = page_markup(models, 'model', 0)
+    text = '🚜 *Діагностика трактора*\n\nОберіть модель трактора:'
     if edit:
         await target.edit_message_text(text, reply_markup=markup, parse_mode='Markdown')
     else:
@@ -113,7 +115,7 @@ async def show_categories(target, edit=False):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await show_categories(update.message)
+    await show_models(update.message)
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -122,14 +124,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if data == 'menu':
             context.user_data.clear()
-            await show_categories(q, edit=True)
+            await show_models(q, edit=True)
             return
 
+        # ========== МОДЕЛЬ ==========
+        if data.startswith('model:'):
+            models = unique(r['model'] for r in DB)
+            model = models[int(data.split(':')[1])]
+            context.user_data['model'] = model
+            categories = unique(r['category'] for r in DB if r['model'] == model)
+            context.user_data['categories'] = categories
+            await q.edit_message_text(
+                f'🚜 *{model}*\n\nОберіть категорію:',
+                reply_markup=page_markup(categories, 'cat', 0),
+                parse_mode='Markdown'
+            )
+            return
+
+        # ========== КАТЕГОРІЯ ==========
         if data.startswith('cat:'):
-            cats = unique(r['category'] for r in DB)
-            category = cats[int(data.split(':')[1])]
+            categories = context.user_data.get('categories', [])
+            category = categories[int(data.split(':')[1])]
             context.user_data['category'] = category
-            problems = unique(r['problem'] for r in DB if r['category'] == category)
+            model = context.user_data.get('model')
+            problems = unique(r['problem'] for r in DB if r['model'] == model and r['category'] == category)
             context.user_data['problems'] = problems
             await q.edit_message_text(
                 f'📂 *{category}*\n\nОберіть проблему:',
@@ -138,12 +156,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ========== ПРОБЛЕМА ==========
         if data.startswith('prob:'):
             problems = context.user_data.get('problems', [])
             problem = problems[int(data.split(':')[1])]
             context.user_data['problem'] = problem
+            model = context.user_data.get('model')
             category = context.user_data.get('category')
-            causes = [r for r in DB if r['category'] == category and r['problem'] == problem]
+            causes = [r for r in DB if r['model'] == model and r['category'] == category and r['problem'] == problem]
             context.user_data['causes'] = causes
             labels = [r['cause'] for r in causes]
             await q.edit_message_text(
@@ -153,6 +173,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ========== ПРИЧИНА ==========
         if data.startswith('cause:'):
             causes = context.user_data.get('causes', [])
             record = causes[int(data.split(':')[1])]
@@ -171,7 +192,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if record[key].strip().lower() in ('так', 'так.', 'yes', 'да'):
                     buttons.append([InlineKeyboardButton(label, callback_data=f'route:{key}')])
             if not buttons:
-                lines.append('\nℹ️ Для цього запису маршрут не позначений як доступний у таблиці. Зверніться до сервісу для уточнення 0800332034.')
+                lines.append('\nℹ️ Для цього запису маршрут не позначений як доступний. Зверніться до сервісу 0800332034.')
             buttons.append([InlineKeyboardButton('⬅️ До причин', callback_data='back_causes')])
             buttons.append([InlineKeyboardButton('🏠 Головне меню', callback_data='menu')])
             await q.edit_message_text(
@@ -181,6 +202,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ========== НАЗАД ДО ПРИЧИН ==========
         if data == 'back_causes':
             problem = context.user_data.get('problem', '')
             causes = context.user_data.get('causes', [])
@@ -191,19 +213,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ========== НАЗАД З МАРШРУТУ ==========
         if data == 'back_route':
             context.user_data['awaiting_contact'] = False
             record = context.user_data.get('selected_record')
             if not record:
-                await show_categories(q, edit=True)
+                await show_models(q, edit=True)
                 return
-
             lines = [f"🔎 *Причина / несправність:*\n{record['cause']}"]
             if record['detect']:
                 lines.append(f"\n🧪 *Спосіб виявлення:*\n{record['detect']}")
             if record['fix']:
                 lines.append(f"\n🛠 *Шлях усунення:*\n{record['fix']}")
-
             buttons = []
             for key, label in [
                 ('self', '🔧 Самостійний ремонт'),
@@ -212,10 +233,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]:
                 if record[key].strip().lower() in ('так', 'так.', 'yes', 'да'):
                     buttons.append([InlineKeyboardButton(label, callback_data=f'route:{key}')])
-
             if not buttons:
-                lines.append('\nℹ️ Для цього запису маршрут не позначений як доступний у таблиці. Зверніться до сервісу для уточнення 0800332034.')
-
+                lines.append('\nℹ️ Для цього запису маршрут не позначений як доступний. Зверніться до сервісу 0800332034.')
             buttons.append([InlineKeyboardButton('⬅️ До причин', callback_data='back_causes')])
             buttons.append([InlineKeyboardButton('🏠 Головне меню', callback_data='menu')])
             await q.edit_message_text(
@@ -225,18 +244,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ========== ПАГІНАЦІЯ ==========
         if data.startswith('page:'):
             _, prefix, page_s = data.split(':')
             page = int(page_s)
-            if prefix == 'cat':
-                items = unique(r['category'] for r in DB)
-                text = '🔧 *Діагностика трактора*\n\nОберіть категорію:'
+            if prefix == 'model':
+                items = unique(r['model'] for r in DB)
+                text = '🚜 *Діагностика трактора*\n\nОберіть модель трактора:'
+            elif prefix == 'cat':
+                items = context.user_data.get('categories', [])
+                text = f"🚜 *{context.user_data.get('model', '')}*\n\nОберіть категорію:"
             elif prefix == 'prob':
                 items = context.user_data.get('problems', [])
-                text = f"📂 *{context.user_data.get('category','')}*\n\nОберіть проблему:"
+                text = f"📂 *{context.user_data.get('category', '')}*\n\nОберіть проблему:"
             else:
                 items = [r['cause'] for r in context.user_data.get('causes', [])]
-                text = f"⚠️ *{context.user_data.get('problem','')}*\n\nОберіть причину / несправність:"
+                text = f"⚠️ *{context.user_data.get('problem', '')}*\n\nОберіть причину / несправність:"
             await q.edit_message_text(
                 text,
                 reply_markup=page_markup(items, prefix, page),
@@ -244,6 +267,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ========== МАРШРУТ ==========
         if data.startswith('route:'):
             route = data.split(':', 1)[1]
             labels = {
@@ -253,14 +277,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             record = context.user_data.get('selected_record')
             if not record:
-                await show_categories(q, edit=True)
+                await show_models(q, edit=True)
                 return
             context.user_data['pending_route'] = labels[route]
             context.user_data['awaiting_contact'] = True
 
-            # Формуємо текст повідомлення
             text = (
                 f"✅ Обраний маршрут: <b>{labels[route]}</b>\n"
+                f"Модель: <b>{record.get('model', '')}</b>\n\n"
                 "Якщо вам не вдалось самостійно вирішити проблему, напишіть нам у <b>Viber</b> на номер:\n"
                 "<code>+380689797080</code>\n"
                 "Або наберіть номер Гарячої лінії 0800332034\n\n"
@@ -272,7 +296,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "• населений пункт.\n"
             )
 
-            # Якщо обрано самостійний ремонт і є посилання на відео — додаємо його
+            # Відео-інструкція тільки для самостійного ремонту
             if route == 'self' and record.get('instruction'):
                 url = record['instruction'].strip()
                 if url.startswith('http'):
@@ -307,9 +331,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = (
             '📩 *Нова сервісна заявка*\n'
             f"Маршрут: {route}\n"
-            f"Категорія: {record.get('category','')}\n"
-            f"Проблема: {record.get('problem','')}\n"
-            f"Причина: {record.get('cause','')}\n"
+            f"Модель: {record.get('model', '')}\n"
+            f"Категорія: {record.get('category', '')}\n"
+            f"Проблема: {record.get('problem', '')}\n"
+            f"Причина: {record.get('cause', '')}\n"
             f"Спосіб виявлення: {record.get('detect') or 'не вказано'}\n"
             f"Шлях усунення: {record.get('fix') or 'не вказано'}\n"
             f"Користувач: @{user.username or 'без username'} (ID {user.id})\n"

@@ -373,6 +373,24 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     log.info('Loaded %s diagnostic rows', len(DB))
     app.run_polling(allowed_updates=Update.ALL_TYPES)
+def main():
+    if not TOKEN:
+        raise SystemExit('Вкажіть TELEGRAM_BOT_TOKEN у файлі .env або змінних середовища.')
+    
+    app = Application.builder().token(TOKEN).build()
+    
+    # ===== ДОДАЙ ЦІ ДВА РЯДКИ =====
+    import asyncio
+    async def clear():
+        await app.bot.delete_webhook(drop_pending_updates=True)
+    asyncio.get_event_loop().run_until_complete(clear())
+    # ==============================
 
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(CommandHandler('help', help_cmd))
+    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    log.info('Loaded %s diagnostic rows', len(DB))
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 if __name__ == '__main__':
     main()

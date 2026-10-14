@@ -364,7 +364,6 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('Введіть /start, щоб відкрити діагностичне меню.')
 
 def main():
-    def main():
     print("=" * 50)
     print("DEBUG: TELEGRAM_BOT_TOKEN from os.getenv =", repr(os.getenv("TELEGRAM_BOT_TOKEN")))
     print("DEBUG: TOKEN variable =", repr(TOKEN))

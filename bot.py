@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 # Load rows from the Excel workbook. Expected columns:
-# Категорія | Проблема | Причина/Несправність | Спосіб виявлення | Шлях усунення | Самостійно | Майстер | Сервіс
+# Категорія | Проблема | Причина/Несправність | Спосіб виявлення | Шлях усунення | Самостійно | Інструкція для самостійного ремонту: | Майстер | Сервіс
 def load_database():
     path = Path(DATA_FILE)
     if not path.exists():
@@ -35,6 +35,14 @@ def load_database():
         'detect': ['спосіб виявлення', 'способ выявления'],
         'fix': ['шлях усунення', 'способ устранения'],
         'self': ['самостійно', 'самостійний ремонт'],
+        'instruction': [
+            'інструкція для самостійного ремонту',
+            'інструкція для самостійного ремонту:',
+            'інструкція',
+            'відео',
+            'youtube',
+            'посилання на відео'
+        ],
         'master': ['майстер', 'виїзд майстра'],
         'service': ['сервіс', 'забір на сервіс'],
     }
@@ -44,20 +52,30 @@ def load_database():
             if h in options:
                 idx[key] = i
                 break
-        if key not in idx:
+        # instruction — необов’язковий стовпець
+        if key not in idx and key != 'instruction':
             raise ValueError(f"Не знайдено колонку для поля: {key}. Перевір заголовки таблиці.")
     data = []
     for line_no, row in enumerate(all_rows[1:], start=2):
         def val(key):
+            if key not in idx:
+                return ''
             i = idx[key]
             return str(row[i]).strip() if i < len(row) and row[i] is not None else ''
         category, problem, cause = val('category'), val('problem'), val('cause')
         if not (category and problem and cause):
             continue
         data.append({
-            'id': len(data), 'category': category, 'problem': problem, 'cause': cause,
-            'detect': val('detect'), 'fix': val('fix'),
-            'self': val('self'), 'master': val('master'), 'service': val('service'),
+            'id': len(data),
+            'category': category,
+            'problem': problem,
+            'cause': cause,
+            'detect': val('detect'),
+            'fix': val('fix'),
+            'self': val('self'),
+            'instruction': val('instruction'),
+            'master': val('master'),
+            'service': val('service'),
             'source_row': line_no,
         })
     if not data:
@@ -239,7 +257,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             context.user_data['pending_route'] = labels[route]
             context.user_data['awaiting_contact'] = True
-            await q.edit_message_text(
+
+            # Формуємо текст повідомлення
+            text = (
                 f"✅ Обраний маршрут: <b>{labels[route]}</b>\n"
                 "Якщо вам не вдалось самостійно вирішити проблему, напишіть нам у <b>Viber</b> на номер:\n"
                 "<code>+380689797080</code>\n"
@@ -249,13 +269,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "• номер телефону;\n"
                 "• модель трактора;\n"
                 "• кількість мотогодин;\n"
-                "• населений пункт.\n\n"
-                "Якщо поки не хочете надсилати заявку — натисніть «Головне меню».",
+                "• населений пункт.\n"
+            )
+
+            # Якщо обрано самостійний ремонт і є посилання на відео — додаємо його
+            if route == 'self' and record.get('instruction'):
+                url = record['instruction'].strip()
+                if url.startswith('http'):
+                    text += f'\n📹 <a href="{url}">Інструкція для самостійного ремонту (відео)</a>\n'
+
+            text += "\nЯкщо поки не хочете надсилати заявку — натисніть «Головне меню»."
+
+            await q.edit_message_text(
+                text,
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton('⬅️ Назад', callback_data='back_route')],
                     [InlineKeyboardButton('🏠 Головне меню', callback_data='menu')]
                 ]),
-                parse_mode='HTML'
+                parse_mode='HTML',
+                disable_web_page_preview=False
             )
             return
 

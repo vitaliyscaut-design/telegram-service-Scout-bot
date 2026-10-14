@@ -373,7 +373,6 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     log.info('Loaded %s diagnostic rows', len(DB))
     app.run_polling(allowed_updates=Update.ALL_TYPES)
-  def main():
     print("=== TOKEN FROM ENV ===")
     print(repr(os.getenv("TELEGRAM_BOT_TOKEN")))
     print("======================")

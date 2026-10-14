@@ -364,8 +364,16 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('Введіть /start, щоб відкрити діагностичне меню.')
 
 def main():
+    def main():
+    print("=" * 50)
+    print("DEBUG: TELEGRAM_BOT_TOKEN from os.getenv =", repr(os.getenv("TELEGRAM_BOT_TOKEN")))
+    print("DEBUG: TOKEN variable =", repr(TOKEN))
+    print("DEBUG: All env keys containing TOKEN:", [k for k in os.environ if "TOKEN" in k.upper()])
+    print("=" * 50)
+
     if not TOKEN:
         raise SystemExit('Вкажіть TELEGRAM_BOT_TOKEN у файлі .env або змінних середовища.')
+
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('help', help_cmd))
@@ -373,13 +381,6 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     log.info('Loaded %s diagnostic rows', len(DB))
     app.run_polling(allowed_updates=Update.ALL_TYPES)
-    print("=== TOKEN FROM ENV ===")
-    print(repr(os.getenv("TELEGRAM_BOT_TOKEN")))
-    print("======================")
-    
-    if not TOKEN:
-        raise SystemExit('Вкажіть TELEGRAM_BOT_TOKEN у файлі .env або змінних середовища.')
-    ...
 
 if __name__ == '__main__':
     main()

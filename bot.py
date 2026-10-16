@@ -1,37 +1,42 @@
 import os
 import logging
-from pathlib import Path
-from openpyxl import load_workbook
+import pandas as pd
 from dotenv import load_dotenv
 load_dotenv()
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (Application, CommandHandler, CallbackQueryHandler,
                           MessageHandler, ContextTypes, filters)
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
-DATA_FILE = os.getenv("BOT_DATA_FILE", "Для Бота2-2.xlsx")
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "").strip()
 PAGE_SIZE = 8
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
+
 def load_database():
-    path = Path(DATA_FILE)
-    if not path.exists():
-        raise FileNotFoundError(f"Не знайдено файл бази: {path.resolve()}")
-    ws = load_workbook(path, data_only=True, read_only=True).active
-    all_rows = list(ws.iter_rows(values_only=True))
-    if not all_rows:
-        raise ValueError("Файл бази порожній")
-    headers = [str(x or '').strip().lower() for x in all_rows[0]]
+    if not GOOGLE_SHEET_ID:
+        raise SystemExit("Вкажіть GOOGLE_SHEET_ID у файлі .env")
+
+    url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/export?format=csv&gid=0"
+    
+    try:
+        df = pd.read_csv(url, dtype=str, keep_default_na=False)
+    except Exception as e:
+        raise RuntimeError(f"Не вдалося завантажити Google Таблицю: {e}")
+
+    df.columns = [str(c).strip().lower() for c in df.columns]
+
     aliases = {
         'model': ['модель трактора', 'модель'],
         'category': ['категорія', 'категория'],
         'problem': ['проблема'],
         'cause': ['причина/несправність', 'причина / несправність', 'несправність / можлива причина'],
         'detect': ['спосіб виявлення', 'способ выявления'],
-        'fix': ['шлях усунення', 'способ устранения'],
+        'fix': ['вирішення питання', 'шлях усунення', 'способ устранения'],
         'self': ['самостійно', 'самостійний ремонт'],
         'instruction': [
             'інструкція для самостійного ремонту',
@@ -44,28 +49,37 @@ def load_database():
         'master': ['майстер', 'виїзд майстра'],
         'service': ['сервіс', 'забір на сервіс'],
     }
+
     idx = {}
     for key, options in aliases.items():
-        for i, h in enumerate(headers):
-            if h in options:
-                idx[key] = i
+        for col in df.columns:
+            if col in options:
+                idx[key] = col
                 break
         if key not in idx and key != 'instruction':
-            raise ValueError(f"Не знайдено колонку для поля: {key}. Перевір заголовки таблиці.")
+            raise ValueError(f"Не знайдено колонку для поля: {key}. Доступні колонки: {list(df.columns)}")
 
     data = []
-    for line_no, row in enumerate(all_rows[1:], start=2):
+    for i, row in df.iterrows():
         def val(key):
             if key not in idx:
                 return ''
-            i = idx[key]
-            return str(row[i]).strip() if i < len(row) and row[i] is not None else ''
+            return str(row[idx[key]]).strip()
+
         model = val('model')
         category = val('category')
         problem = val('problem')
         cause = val('cause')
-        if not (model and category and problem and cause):
+        fix = val('fix')
+
+        if not model or not category:
             continue
+
+        is_to = category.upper().startswith('ТО')
+
+        if not is_to and not (problem and cause):
+            continue
+
         data.append({
             'id': len(data),
             'model': model,
@@ -73,21 +87,28 @@ def load_database():
             'problem': problem,
             'cause': cause,
             'detect': val('detect'),
-            'fix': val('fix'),
+            'fix': fix,
             'self': val('self'),
             'instruction': val('instruction'),
             'master': val('master'),
             'service': val('service'),
-            'source_row': line_no,
+            'is_to': is_to,
+            'source_row': i + 2,
         })
+
     if not data:
         raise ValueError("Не знайшов жодного повного рядка.")
+    
+    print(f"✅ Успішно завантажено {len(data)} записів з Google Таблиці")
     return data
+
 
 DB = load_database()
 
+
 def unique(values):
     return list(dict.fromkeys(values))
+
 
 def page_markup(items, prefix, page=0):
     start = page * PAGE_SIZE
@@ -104,18 +125,26 @@ def page_markup(items, prefix, page=0):
     buttons.append([InlineKeyboardButton('🏠 Головне меню', callback_data='menu')])
     return InlineKeyboardMarkup(buttons)
 
+
 async def show_models(target, edit=False):
     models = unique(r['model'] for r in DB)
     markup = page_markup(models, 'model', 0)
     text = '🚜 *Діагностика трактора*\n\nОберіть модель трактора:'
-    if edit:
-        await target.edit_message_text(text, reply_markup=markup, parse_mode='Markdown')
-    else:
-        await target.reply_text(text, reply_markup=markup, parse_mode='Markdown')
+    
+    try:
+        if edit:
+            await target.edit_message_text(text, reply_markup=markup, parse_mode='Markdown')
+        else:
+            await target.reply_text(text, reply_markup=markup, parse_mode='Markdown')
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            raise
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await show_models(update.message)
+
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -147,11 +176,40 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             category = categories[int(data.split(':')[1])]
             context.user_data['category'] = category
             model = context.user_data.get('model')
-            problems = unique(r['problem'] for r in DB if r['model'] == model and r['category'] == category)
+
+            # Перевіряємо, чи це ТО
+            to_records = [r for r in DB if r['model'] == model and r['category'] == category and r.get('is_to')]
+            
+            if to_records:
+                record = to_records[0]
+                text = f"🛠 *{category}*\n\n{record['fix']}"
+                await q.edit_message_text(
+                    text,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton('⬅️ Назад до категорій', callback_data='back_to_cats')],
+                        [InlineKeyboardButton('🏠 Головне меню', callback_data='menu')]
+                    ]),
+                    parse_mode='Markdown'
+                )
+                return
+
+            # Звичайна категорія
+            problems = unique(r['problem'] for r in DB if r['model'] == model and r['category'] == category and not r.get('is_to'))
             context.user_data['problems'] = problems
             await q.edit_message_text(
                 f'📂 *{category}*\n\nОберіть проблему:',
                 reply_markup=page_markup(problems, 'prob', 0),
+                parse_mode='Markdown'
+            )
+            return
+
+        # ========== НАЗАД ДО КАТЕГОРІЙ ==========
+        if data == 'back_to_cats':
+            model = context.user_data.get('model')
+            categories = context.user_data.get('categories', [])
+            await q.edit_message_text(
+                f'🚜 *{model}*\n\nОберіть категорію:',
+                reply_markup=page_markup(categories, 'cat', 0),
                 parse_mode='Markdown'
             )
             return
@@ -182,7 +240,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if record['detect']:
                 lines.append(f"\n🧪 *Спосіб виявлення:*\n{record['detect']}")
             if record['fix']:
-                lines.append(f"\n🛠 *Шлях усунення:*\n{record['fix']}")
+                lines.append(f"\n🛠 *Вирішення питання:*\n{record['fix']}")
             buttons = []
             for key, label in [
                 ('self', '🔧 Самостійний ремонт'),
@@ -224,7 +282,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if record['detect']:
                 lines.append(f"\n🧪 *Спосіб виявлення:*\n{record['detect']}")
             if record['fix']:
-                lines.append(f"\n🛠 *Шлях усунення:*\n{record['fix']}")
+                lines.append(f"\n🛠 *Вирішення питання:*\n{record['fix']}")
             buttons = []
             for key, label in [
                 ('self', '🔧 Самостійний ремонт'),
@@ -295,15 +353,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "• кількість мотогодин;\n"
                 "• населений пункт.\n"
             )
-
-            # Відео-інструкція тільки для самостійного ремонту
             if route == 'self' and record.get('instruction'):
                 url = record['instruction'].strip()
                 if url.startswith('http'):
                     text += f'\n📹 <a href="{url}">Інструкція для самостійного ремонту (відео)</a>\n'
-
             text += "\nЯкщо поки не хочете надсилати заявку — натисніть «Головне меню»."
-
             await q.edit_message_text(
                 text,
                 reply_markup=InlineKeyboardMarkup([
@@ -315,9 +369,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    except (IndexError, ValueError, KeyError) as e:
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            return
         log.exception('Callback error: %s', e)
-        await q.edit_message_text('Не вдалося обробити вибір. Натисніть /start і спробуйте ще раз.')
+        try:
+            await q.edit_message_text('Не вдалося обробити вибір. Натисніть /start і спробуйте ще раз.')
+        except:
+            pass
+
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get('awaiting_contact'):
@@ -336,7 +396,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Проблема: {record.get('problem', '')}\n"
             f"Причина: {record.get('cause', '')}\n"
             f"Спосіб виявлення: {record.get('detect') or 'не вказано'}\n"
-            f"Шлях усунення: {record.get('fix') or 'не вказано'}\n"
+            f"Вирішення питання: {record.get('fix') or 'не вказано'}\n"
             f"Користувач: @{user.username or 'без username'} (ID {user.id})\n"
             f"Контактні дані: {details}"
         )
@@ -360,26 +420,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     context.user_data['awaiting_contact'] = False
 
+
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('Введіть /start, щоб відкрити діагностичне меню.')
 
-def main():
-    print("=" * 50)
-    print("DEBUG: TELEGRAM_BOT_TOKEN from os.getenv =", repr(os.getenv("TELEGRAM_BOT_TOKEN")))
-    print("DEBUG: TOKEN variable =", repr(TOKEN))
-    print("DEBUG: All env keys containing TOKEN:", [k for k in os.environ if "TOKEN" in k.upper()])
-    print("=" * 50)
 
+def main():
     if not TOKEN:
         raise SystemExit('Вкажіть TELEGRAM_BOT_TOKEN у файлі .env або змінних середовища.')
-
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('help', help_cmd))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    log.info('Loaded %s diagnostic rows', len(DB))
+    log.info('Loaded %s diagnostic rows from Google Sheet', len(DB))
     app.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == '__main__':
     main()

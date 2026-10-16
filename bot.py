@@ -1,3 +1,4 @@
+print("BOT.PY STARTED", flush=True)
 import os
 import logging
 import csv

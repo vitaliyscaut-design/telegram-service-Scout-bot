@@ -419,7 +419,14 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('Введіть /start, щоб відкрити діагностичне меню.')
 
 def main():
+    print("=" * 50)
+    print("GOOGLE_SHEET_ID =", repr(os.getenv("GOOGLE_SHEET_ID")))
+    print("TELEGRAM_BOT_TOKEN starts with =", repr((os.getenv("TELEGRAM_BOT_TOKEN") or "")[:15]))
+    print("=" * 50)
+
     if not TOKEN:
+        raise SystemExit('Вкажіть TELEGRAM_BOT_TOKEN у файлі .env або змінних середовища.')  
+  if not TOKEN:
         raise SystemExit('Вкажіть TELEGRAM_BOT_TOKEN у файлі .env або змінних середовища.')
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', start))

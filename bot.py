@@ -1,16 +1,21 @@
 import sys
 print("PYTHON STARTED SUCCESSFULLY", flush=True)
 sys.stdout.flush()
+
 import os
 import logging
 import csv
 import io
 import urllib.request
 from dotenv import load_dotenv
+
 load_dotenv()
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import (Application, CommandHandler, CallbackQueryHandler,
-                          MessageHandler, ContextTypes, filters)
+from telegram.ext import (
+    Application, CommandHandler, CallbackQueryHandler,
+    MessageHandler, ContextTypes, filters
+)
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "").strip()
@@ -22,9 +27,11 @@ log = logging.getLogger(__name__)
 
 def load_database():
     if not GOOGLE_SHEET_ID:
+        log.error("GOOGLE_SHEET_ID не задано у змінних середовища!")
         raise SystemExit("Вкажіть GOOGLE_SHEET_ID у змінних середовища")
 
     url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/export?format=csv&gid=0"
+    log.info(f"Спроба завантажити Google Таблицю за посиланням: {url}")
 
     try:
         with urllib.request.urlopen(url) as response:
@@ -32,6 +39,7 @@ def load_database():
         reader = csv.DictReader(io.StringIO(content))
         rows = list(reader)
     except Exception as e:
+        log.exception(f"Помилка завантаження Google Таблиці: {e}")
         raise RuntimeError(f"Не вдалося завантажити Google Таблицю: {e}")
 
     if not rows:
@@ -112,7 +120,7 @@ def load_database():
     if not data:
         raise ValueError("Не знайшов жодного повного рядка.")
 
-    print(f"✅ Успішно завантажено {len(data)} записів з Google Таблиці")
+    print(f"✅ Успішно завантажено {len(data)} записів з Google Таблиці", flush=True)
     return data
 
 DB = []
@@ -422,21 +430,31 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('Введіть /start, щоб відкрити діагностичне меню.')
 
 def main():
-    print("=" * 50)
-    print("GOOGLE_SHEET_ID =", repr(os.getenv("GOOGLE_SHEET_ID")))
-    print("TELEGRAM_BOT_TOKEN starts with =", repr((os.getenv("TELEGRAM_BOT_TOKEN") or "")[:15]))
-    print("=" * 50)
-
-    global DB
-    DB = load_database()
+    print("=" * 50, flush=True)
+    print("GOOGLE_SHEET_ID =", repr(os.getenv("GOOGLE_SHEET_ID")), flush=True)
+    print("TELEGRAM_BOT_TOKEN starts with =", repr((os.getenv("TELEGRAM_BOT_TOKEN") or "")[:15]), flush=True)
+    print("=" * 50, flush=True)
 
     if not TOKEN:
         raise SystemExit('Вкажіть TELEGRAM_BOT_TOKEN у файлі .env або змінних середовища.')
+
+    global DB
+    try:
+        DB = load_database()
+    except Exception as e:
+        print(f"❌ КРИТИЧНА ПОМИЛКА під час завантаження бази: {e}", flush=True)
+        raise
 
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('help', help_cmd))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    
     log.info('Loaded %s diagnostic rows from Google Sheet', len(DB))
+    print("🚀 БОТ УСПІШНО ЗАПУСЧЕНИЙ І СЛУХАЄ ПОВІДОМЛЕННЯ", flush=True)
+    
     app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == '__main__':
+    main()

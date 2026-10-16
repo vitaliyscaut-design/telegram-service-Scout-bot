@@ -112,7 +112,7 @@ def load_database():
     print(f"✅ Успішно завантажено {len(data)} записів з Google Таблиці")
     return data
 
-DB = load_database()
+DB = []
 
 def unique(values):
     return list(dict.fromkeys(values))
@@ -423,6 +423,9 @@ def main():
     print("GOOGLE_SHEET_ID =", repr(os.getenv("GOOGLE_SHEET_ID")))
     print("TELEGRAM_BOT_TOKEN starts with =", repr((os.getenv("TELEGRAM_BOT_TOKEN") or "")[:15]))
     print("=" * 50)
+
+    global DB
+    DB = load_database()
 
     if not TOKEN:
         raise SystemExit('Вкажіть TELEGRAM_BOT_TOKEN у файлі .env або змінних середовища.')

@@ -1,4 +1,6 @@
-print("BOT.PY STARTED", flush=True)
+import sys
+print("PYTHON STARTED SUCCESSFULLY", flush=True)
+sys.stdout.flush()
 import os
 import logging
 import csv
